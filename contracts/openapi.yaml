@@ -1,0 +1,227 @@
+openapi: 3.0.3
+info:
+  title: trio-bench API
+  description: Production-shaped IoT telemetry ingestion service for language benchmarking.
+  version: 1.0.0
+servers:
+  - url: /api/v1
+    description: Local development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # --- Auth Schemas ---
+    TokenRequest:
+      type: object
+      required: [clientId, clientSecret]
+      properties:
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+    
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Expiration time in seconds
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    # --- Telemetry Schemas ---
+    TelemetryEvent:
+      type: object
+      required: [eventId, occurredAt, metricId, value, status]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        metricId:
+          type: string
+        value:
+          type: number
+          format: double
+        status:
+          type: string
+
+    TelemetryBatchRequest:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TelemetryEvent'
+
+    DeviceSnapshot:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        latestEvent:
+          $ref: '#/components/schemas/TelemetryEvent'
+        lastUpdated:
+          type: string
+          format: date-time
+
+    # --- Error Schemas ---
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+paths:
+  /auth/token:
+    post:
+      summary: Exchange credentials for tokens
+      operationId: issueToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      summary: Rotate refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid or reused refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /devices/{id}/events:
+    post:
+      summary: Submit telemetry batch
+      operationId: submitEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryBatchRequest'
+      responses:
+        '201':
+          description: Batch accepted and processed
+        '400':
+          description: Validation failed (Batch Atomicity: one bad event rejects all)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Unauthorized for this device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthenticated
+
+  /devices/{id}/latest:
+    get:
+      summary: Get latest device snapshot
+      operationId: getLatest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSnapshot'
+        '404':
+          description: Device not found
+        '401':
+          description: Unauthenticated
+
+  /health/live:
+    get:
+      summary: Liveness check
+      responses:
+        '200':
+          description: Process is alive
+
+  /health/ready:
+    get:
+      summary: Readiness check (Dependencies)
+      responses:
+        '200':
+          description: All dependencies (DB, Cache) ready
+        '503':
+          description: Dependency unavailable
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Metrics data
