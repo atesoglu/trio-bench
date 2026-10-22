@@ -6,6 +6,7 @@ const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
 const VUS = parseInt(__ENV.VUS || '10');
 const DURATION = __ENV.DURATION || '30s';
 
+// IMPORTANT: No type annotations, no k6/options import
 export const options = {
   stages: [
     { duration: '10s', target: VUS }, // Ramp-up
@@ -13,7 +14,7 @@ export const options = {
     { duration: '10s', target: 0 },   // Ramp-down
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500'], // 95% of requests must be below 500ms
+    http_req_duration: ['p(95)<500'], 
   },
 };
 
