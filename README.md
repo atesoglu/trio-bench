@@ -136,6 +136,7 @@ Benchmarks will be run on identical hardware with pinned versions:
 ```
 trio-bench/
 ├── README.md
+├── bench.sh
 ├── docs/
 │   ├── architecture.md
 │   ├── api-contract.md
@@ -157,7 +158,7 @@ trio-bench/
 ├── benchmarks/
 │   ├── loadgen/
 │   │   ├── Dockerfile
-│   │   └── stress_test.js
+│   │   └── benchmark.js
 │   ├── scenarios/
 │   ├── scripts/
 │   └── reports/
