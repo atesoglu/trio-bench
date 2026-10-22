@@ -57,6 +57,19 @@ services:
       redis:
         condition: service_healthy
 
+  loadgen:
+    build:
+      context: ../benchmarks/loadgen
+    container_name: trio-bench-loadgen
+    profiles: [benchmark]
+    environment:
+      - TARGET_URL=http://api-dotnet:8080
+      - VUS=10
+      - DURATION=30s
+    depends_on:
+      api-dotnet:
+        condition: service_started
+
 volumes:
   postgres_data:
   redis_data:

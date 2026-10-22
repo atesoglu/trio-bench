@@ -1,0 +1,74 @@
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Options } from 'k6/options';
+
+// Parameterized options via environment variables
+const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
+const VUS = parseInt(__ENV.VUS || '10');
+const DURATION = __ENV.DURATION || '30s';
+
+export const options: Options = {
+  stages: [
+    { duration: '10s', target: VUS }, // Ramp-up
+    { duration: '20s', target: VUS }, // Stay at peak
+    { duration: '10s', target: 0 },   // Ramp-down
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<500'], // 95% of requests must be below 500ms
+  },
+};
+
+export default async function () {
+  // 1. Authentication
+  const authPayload = JSON.stringify({
+    clientId: 'admin',
+    clientSecret: 'password',
+  });
+
+  const authRes = http.post(`${TARGET_URL}/v1/auth/token`, authPayload, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!check(authRes, { 'auth successful': (r) => r.status === 200 })) {
+    return;
+  }
+
+  const token = JSON.parse(authRes.body).accessToken;
+  const params = {
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+  };
+
+  // 2. Submit Telemetry Batch
+  const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210'; // Fixed ID for stress test
+  const telemetryPayload = JSON.stringify({
+    events: [
+      {
+        eventId: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        metricId: 'temp_01',
+        value: Math.random() * 100,
+        status: 'OK',
+      },
+      // Adding 9 more to make a batch of 10 as per requirements
+      ...Array.from({ length: 9 }).map(() => ({
+        eventId: crypto.randomUUID(),
+        occurredAt: new Date().toISOString(),
+        metricId: 'temp_01',
+        value: Math.random() * 100,
+        status: 'OK',
+      })),
+    ],
+  });
+
+  const ingestRes = http.post(`${TARGET_URL}/v1/devices/${deviceId}/events`, telemetryPayload, params);
+  check(ingestRes, { 'ingest successful': (r) => r.status === 201 });
+
+  // 3. Read Latest State
+  const readRes = http.get(`${TARGET_URL}/v1/devices/${deviceId}/latest`, params);
+  check(readRes, { 'read successful': (r) => r.status === 200 });
+
+  sleep(1);
+}
