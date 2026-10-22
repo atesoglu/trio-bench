@@ -85,6 +85,10 @@ To group all containers under the `trio-bench` project name:
 cd deploy
 podman compose -p trio-bench up -d
 ```
+To run a benchmark stress test (includes the load generator):
+```bash
+podman compose -p trio-bench --profile benchmark up -d --build
+```
 To tear down the project (keeping data):
 ```bash
 podman compose -p trio-bench down
@@ -99,6 +103,10 @@ To group all containers under the `trio-bench` project name:
 ```bash
 cd deploy
 docker compose -p trio-bench up -d
+```
+To run a benchmark stress test (includes the load generator):
+```bash
+docker compose -p trio-bench --profile benchmark up -d --build
 ```
 To tear down the project (keeping data):
 ```bash
@@ -147,6 +155,9 @@ trio-bench/
 │   ├── contract/
 │   └── integration/
 ├── benchmarks/
+│   ├── loadgen/
+│   │   ├── Dockerfile
+│   │   └── stress_test.js
 │   ├── scenarios/
 │   ├── scripts/
 │   └── reports/
