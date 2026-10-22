@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { Options } from 'k6/options';
 
 // Parameterized options via environment variables
 const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
@@ -17,7 +18,34 @@ export const options = {
   },
 };
 
+// Helper function to wait for the API to be ready
+function waitForApi() {
+  let ready = false;
+  let attempts = 0;
+  const maxAttempts = 30;
+
+  while (!ready && attempts < maxAttempts) {
+    attempts++;
+    const res = http.get(`${TARGET_URL}/.ops/health/ready`);
+    if (res.status === 200) {
+      ready = true;
+    } else {
+      sleep(1); // Wait 1 second before retrying
+    }
+  }
+  return ready;
+}
+
 export default async function () {
+  // --- WARMUP PHASE ---
+  // Only the first VU handles the warmup to avoid hammering the API with 100s of health checks
+  if (__VU === 1 && __ITER === 0) {
+    if (!waitForApi()) {
+      console.log('API failed to become ready in time. Aborting.');
+      return;
+    }
+  }
+
   // 1. Authentication
   const authPayload = JSON.stringify({
     clientId: 'admin',
@@ -41,9 +69,8 @@ export default async function () {
   };
 
   // 2. Submit Telemetry Batch
-  const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210'; // Fixed ID for stress test
+  const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210'; 
   
-  // Helper to generate a random event
   const generateEvent = () => ({
     eventId: __VU + '_' + __ITER + '_' + Math.floor(Math.random() * 1000000),
     occurredAt: new Date().toISOString(),
