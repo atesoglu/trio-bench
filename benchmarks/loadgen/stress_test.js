@@ -1,13 +1,12 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Options } from 'k6/options';
 
 // Parameterized options via environment variables
 const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
 const VUS = parseInt(__ENV.VUS || '10');
 const DURATION = __ENV.DURATION || '30s';
 
-export const options: Options = {
+export const options = {
   stages: [
     { duration: '10s', target: VUS }, // Ramp-up
     { duration: '20s', target: VUS }, // Stay at peak
@@ -43,24 +42,18 @@ export default async function () {
 
   // 2. Submit Telemetry Batch
   const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210'; // Fixed ID for stress test
+  
+  // Helper to generate a random event
+  const generateEvent = () => ({
+    eventId: __VU + '_' + __ITER + '_' + Math.floor(Math.random() * 1000000),
+    occurredAt: new Date().toISOString(),
+    metricId: 'temp_01',
+    value: Math.random() * 100,
+    status: 'OK',
+  });
+
   const telemetryPayload = JSON.stringify({
-    events: [
-      {
-        eventId: crypto.randomUUID(),
-        occurredAt: new Date().toISOString(),
-        metricId: 'temp_01',
-        value: Math.random() * 100,
-        status: 'OK',
-      },
-      // Adding 9 more to make a batch of 10 as per requirements
-      ...Array.from({ length: 9 }).map(() => ({
-        eventId: crypto.randomUUID(),
-        occurredAt: new Date().toISOString(),
-        metricId: 'temp_01',
-        value: Math.random() * 100,
-        status: 'OK',
-      })),
-    ],
+    events: Array.from({ length: 10 }, generateEvent),
   });
 
   const ingestRes = http.post(`${TARGET_URL}/v1/devices/${deviceId}/events`, telemetryPayload, params);
