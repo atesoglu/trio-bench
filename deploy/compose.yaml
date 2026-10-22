@@ -66,6 +66,10 @@ services:
       - TARGET_URL=http://api-dotnet:8080
       - VUS=10
       - DURATION=30s
+    volumes:
+      - ../benchmarks/reports/raw-results:/results:Z
+    # We override the entrypoint to save the log to a file
+    entrypoint: ["sh", "-c", "k6 run stress_test.js > /results/latest_run.log 2>&1"]
     depends_on:
       api-dotnet:
         condition: service_started
