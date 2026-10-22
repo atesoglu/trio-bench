@@ -3,12 +3,8 @@ using Api.Domain;
 
 namespace Api.Data;
 
-public class AppDbContext : DbContext
+public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
-    {
-    }
-
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<TelemetryEvent> TelemetryEvents => Set<TelemetryEvent>();
 

@@ -20,7 +20,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis") ?? "localhost"));
 
 // 2. Domain & Services
-builder.Services.AddScoped<ITelemetryService, TelemetryService>();
+builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<IValidator<TelemetryBatchRequest>, TelemetryBatchValidator>();
 
 // 3. Auth Setup (Simplified for baseline)
@@ -69,16 +69,16 @@ app.MapPost("/v1/auth/refresh", (RefreshRequest req) =>
     return Results.Unauthorized();
 });
 
-app.MapPost("/v1/devices/{id}/events", async (Guid id, TelemetryBatchRequest request, ITelemetryService service, IValidator<TelemetryBatchRequest> validator) =>
+app.MapPost("/v1/devices/{id}/events", async (Guid id, TelemetryBatchRequest request, TelemetryService service, IValidator<TelemetryBatchRequest> validator) =>
 {
     var validationResult = await validator.ValidateAsync(request);
     if (!validationResult.IsValid) return Results.BadRequest(validationResult.Errors);
 
-    var success = await service.ProcessBatchAsync(id, request);
-    return success ? Results.Created() : Results.BadRequest("Processing failed");
+    await service.ProcessBatchAsync(id, request);
+    return Results.Created();
 }).RequireAuthorization();
 
-app.MapGet("/v1/devices/{id}/latest", async (Guid id, ITelemetryService service) =>
+app.MapGet("/v1/devices/{id}/latest", async (Guid id, TelemetryService service) =>
 {
     var snapshot = await service.GetLatestAsync(id);
     return snapshot != null ? Results.Ok(snapshot) : Results.NotFound();
