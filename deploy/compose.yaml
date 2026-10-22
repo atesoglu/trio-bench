@@ -40,6 +40,23 @@ services:
     volumes:
       - ./otel-config.yaml:/etc/otel-collector-config.yaml:Z
 
+  api-dotnet:
+    build:
+      context: ../src/dotnet
+      dockerfile: Api/Dockerfile
+    container_name: trio-bench-dotnet
+    ports:
+      - "5000:8080"
+    environment:
+      - ConnectionStrings__Postgres=Host=postgres;Database=triobench;Username=user;Password=password
+      - ConnectionStrings__Redis=redis:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
