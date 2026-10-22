@@ -27,13 +27,13 @@ All three implementations must adhere to the following externally observable beh
 
 | Endpoint | Purpose |
 | :--- | :--- |
-| `POST /api/v1/auth/token` | Exchange client credentials for access and refresh tokens |
-| `POST /api/v1/auth/refresh` | Rotate the refresh token and issue a new token pair |
-| `POST /api/v1/devices/{id}/events` | Submit a batch of telemetry events |
-| `GET /api/v1/devices/{id}/latest` | Retrieve the latest device snapshot |
-| `GET /health/live` | Check whether the process is alive |
-| `GET /health/ready` | Check whether required dependencies are ready |
-| `GET /metrics` | Expose Prometheus-compatible metrics |
+| `POST /v1/auth/token` | Exchange client credentials for access and refresh tokens |
+| `POST /v1/auth/refresh` | Rotate the refresh token and issue a new token pair |
+| `POST /v1/devices/{id}/events` | Submit a batch of telemetry events |
+| `GET /v1/devices/{id}/latest` | Retrieve the latest device snapshot |
+| `GET /.ops/health/live` | Check whether the process is alive |
+| `GET /.ops/health/ready` | Check whether required dependencies are ready |
+| `GET /.ops/metrics` | Expose Prometheus-compatible metrics |
 
 ### Standard Telemetry Event Schema
 ```json
