@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { randomBytes, hexEncode } from 'k6/crypto';
 
 const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
 const VUS = parseInt(__ENV.VUS || '10');
@@ -13,8 +14,19 @@ export const options = {
   ],
   thresholds: {
     http_req_duration: ['p(95)<500'],
+    // Gate the run: a benchmark where any endpoint fails is a broken run, not a slow one.
+    checks: ['rate>0.99'],
   },
 };
+
+// The contract and the telemetry_events schema require UUID event identifiers.
+function uuidv4() {
+  const b = randomBytes(16);
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const h = hexEncode(b);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
 
 function waitForApi() {
   let ready = false;
@@ -48,9 +60,9 @@ export default async function () {
   const token = JSON.parse(authRes.body).accessToken;
   const params = { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } };
 
-  const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210'; 
+  const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210';
   const generateEvent = () => ({
-    eventId: __VU + '_' + __ITER + '_' + Math.floor(Math.random() * 1000000),
+    eventId: uuidv4(),
     occurredAt: new Date().toISOString(),
     metricId: 'temp_01',
     value: Math.random() * 100,

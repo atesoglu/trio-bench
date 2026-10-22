@@ -10,6 +10,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data:Z
+      # Auto-applies the shared schema on first boot with an empty volume
+      # (files in /docker-entrypoint-initdb.d run alphabetically at init).
+      - ../database/migrations:/docker-entrypoint-initdb.d:Z
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d triobench"]
       interval: 5s

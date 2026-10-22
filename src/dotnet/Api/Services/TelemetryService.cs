@@ -13,12 +13,13 @@ public class TelemetryService(AppDbContext db, IConnectionMultiplexer redis, ILo
 
     public async Task ProcessBatchAsync(Guid deviceId, TelemetryBatchRequest request)
     {
-        var device = await db.Devices.FindAsync(deviceId);
-        if (device == null)
-        {
-            db.Devices.Add(new Device { DeviceId = deviceId, CreatedAt = DateTimeOffset.UtcNow });
-            await db.SaveChangesAsync();
-        }
+        // Idempotent, race-safe device auto-registration. The previous check-then-insert
+        // (FindAsync + Add) let two concurrent batches for an unknown device collide on
+        // devices_pkey, turning a valid benchmark request into an HTTP 500.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO devices (device_id) VALUES ({deviceId}) ON CONFLICT (device_id) DO NOTHING");
+
+        var accepted = new List<TelemetryEventDto>();
 
         foreach (var dto in request.Events)
         {
@@ -36,11 +37,17 @@ public class TelemetryService(AppDbContext db, IConnectionMultiplexer redis, ILo
             };
 
             db.TelemetryEvents.Add(telemetry);
-
-            await UpdateCacheAsync(deviceId, dto);
+            accepted.Add(dto);
         }
 
         await db.SaveChangesAsync();
+
+        // Update the cache only after the batch is durably committed, so a failed save
+        // cannot leave a snapshot in Redis that was never persisted.
+        foreach (var dto in accepted)
+        {
+            await UpdateCacheAsync(deviceId, dto);
+        }
     }
 
     private async Task UpdateCacheAsync(Guid deviceId, TelemetryEventDto evt)
