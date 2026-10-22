@@ -1,6 +1,5 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Options } from 'k6/options';
 
 // Parameterized options via environment variables
 const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
@@ -18,7 +17,6 @@ export const options = {
   },
 };
 
-// Helper function to wait for the API to be ready
 function waitForApi() {
   let ready = false;
   let attempts = 0;
@@ -30,15 +28,13 @@ function waitForApi() {
     if (res.status === 200) {
       ready = true;
     } else {
-      sleep(1); // Wait 1 second before retrying
+      sleep(1);
     }
   }
   return ready;
 }
 
 export default async function () {
-  // --- WARMUP PHASE ---
-  // Only the first VU handles the warmup to avoid hammering the API with 100s of health checks
   if (__VU === 1 && __ITER === 0) {
     if (!waitForApi()) {
       console.log('API failed to become ready in time. Aborting.');
@@ -46,7 +42,6 @@ export default async function () {
     }
   }
 
-  // 1. Authentication
   const authPayload = JSON.stringify({
     clientId: 'admin',
     clientSecret: 'password',
@@ -68,7 +63,6 @@ export default async function () {
     },
   };
 
-  // 2. Submit Telemetry Batch
   const deviceId = 'a73b8d7a-0f6a-4f47-b1d8-8f7b2b8d3210'; 
   
   const generateEvent = () => ({
@@ -86,7 +80,6 @@ export default async function () {
   const ingestRes = http.post(`${TARGET_URL}/v1/devices/${deviceId}/events`, telemetryPayload, params);
   check(ingestRes, { 'ingest successful': (r) => r.status === 201 });
 
-  // 3. Read Latest State
   const readRes = http.get(`${TARGET_URL}/v1/devices/${deviceId}/latest`, params);
   check(readRes, { 'read successful': (r) => r.status === 200 });
 
