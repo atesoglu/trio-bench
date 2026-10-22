@@ -48,7 +48,7 @@ app.UseAuthorization();
 
 // --- Endpoints ---
 
-app.MapPost("/api/v1/auth/token", (TokenRequest req) =>
+app.MapPost("/v1/auth/token", (TokenRequest req) =>
 {
     // Baseline: simple mock auth
     if (req.ClientId == "admin" && req.ClientSecret == "password")
@@ -59,7 +59,7 @@ app.MapPost("/api/v1/auth/token", (TokenRequest req) =>
     return Results.Unauthorized();
 });
 
-app.MapPost("/api/v1/auth/refresh", (RefreshRequest req) =>
+app.MapPost("/v1/auth/refresh", (RefreshRequest req) =>
 {
     if (req.RefreshToken == "refresh_token_mock")
     {
@@ -69,7 +69,7 @@ app.MapPost("/api/v1/auth/refresh", (RefreshRequest req) =>
     return Results.Unauthorized();
 });
 
-app.MapPost("/api/v1/devices/{id}/events", async (Guid id, TelemetryBatchRequest request, ITelemetryService service, IValidator<TelemetryBatchRequest> validator) =>
+app.MapPost("/v1/devices/{id}/events", async (Guid id, TelemetryBatchRequest request, ITelemetryService service, IValidator<TelemetryBatchRequest> validator) =>
 {
     var validationResult = await validator.ValidateAsync(request);
     if (!validationResult.IsValid) return Results.BadRequest(validationResult.Errors);
@@ -78,14 +78,14 @@ app.MapPost("/api/v1/devices/{id}/events", async (Guid id, TelemetryBatchRequest
     return success ? Results.Created() : Results.BadRequest("Processing failed");
 }).RequireAuthorization();
 
-app.MapGet("/api/v1/devices/{id}/latest", async (Guid id, ITelemetryService service) =>
+app.MapGet("/v1/devices/{id}/latest", async (Guid id, ITelemetryService service) =>
 {
     var snapshot = await service.GetLatestAsync(id);
     return snapshot != null ? Results.Ok(snapshot) : Results.NotFound();
 }).RequireAuthorization();
 
-app.MapGet("/health/live", () => Results.Ok("Alive"));
-app.MapGet("/health/ready", async (AppDbContext db, IConnectionMultiplexer redis) =>
+app.MapGet("/.ops/health/live", () => Results.Ok("Alive"));
+app.MapGet("/.ops/health/ready", async (AppDbContext db, IConnectionMultiplexer redis) =>
 {
     try
     {
@@ -99,6 +99,6 @@ app.MapGet("/health/ready", async (AppDbContext db, IConnectionMultiplexer redis
     }
 });
 
-app.MapGet("/metrics", () => Results.Ok("Prometheus metrics would be here via OTel"));
+app.MapGet("/.ops/metrics", () => Results.Ok("Prometheus metrics would be here via OTel"));
 
 app.Run();
