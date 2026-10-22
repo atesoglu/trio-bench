@@ -1,20 +1,18 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-// Parameterized options via environment variables
 const TARGET_URL = __ENV.TARGET_URL || 'http://api-dotnet:8080';
 const VUS = parseInt(__ENV.VUS || '10');
 const DURATION = __ENV.DURATION || '30s';
 
-// IMPORTANT: No type annotations, no k6/options import
 export const options = {
   stages: [
-    { duration: '10s', target: VUS }, // Ramp-up
-    { duration: '20s', target: VUS }, // Stay at peak
-    { duration: '10s', target: 0 },   // Ramp-down
+    { duration: '10s', target: VUS },
+    { duration: '20s', target: VUS },
+    { duration: '10s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500'], 
+    http_req_duration: ['p(95)<500'],
   },
 };
 
