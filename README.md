@@ -72,7 +72,7 @@ The boundary remains consistent, but the internal implementation is idiomatic to
 - **Cross-cutting:** OpenTelemetry, Structured Logging, Prometheus Metrics.
 
 ### Implementation Styles
-- **C#**: ASP.NET Core, EF Core, FluentValidation.
+- **C#**: ASP.NET Core Minimal APIs, EF Core + raw Npgsql hot path, prometheus-net, StackExchange.Redis.
 - **Go**: `net/http` or lightweight router, explicit dependencies.
 - **Rust**: Axum, Tokio, SQLx.
 
@@ -97,6 +97,7 @@ To completely wipe the project (including volumes):
 ```bash
 podman compose -p trio-bench down -v
 ```
+Note: the shared schema (all SQL files in `database/migrations/`) is applied automatically by the Postgres container on the **first boot with an empty volume**. After schema changes, wipe volumes (`down -v`) before the next run.
 
 ### Running with Docker (Windows/macOS/Linux)
 To group all containers under the `trio-bench` project name:

@@ -1,16 +1,13 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using Api.Data;
 using Api.Models;
 using Api.Services;
-using Api.Validators;
-using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Prometheus;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,22 +20,26 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Conn
 
 // 2. Domain & Services
 builder.Services.AddScoped<TelemetryService>();
-builder.Services.AddScoped<IValidator<TelemetryBatchRequest>, TelemetryBatchValidator>();
+builder.Services.AddScoped<AuthService>();
 
 // 3. Auth Setup
-// Baseline: static benchmark credentials, but real HS256-signed JWTs so that the API's own
-// bearer validation accepts exactly what /auth/token and /auth/refresh issue. Refresh
-// rotation is still stateless at this stage (no stored token lineage); that upgrade is tracked separately.
-const string JwtSigningKey = "a_very_long_and_secure_secret_key_for_benchmarking_123";
-const string UsageAccess = "access";
-const string UsageRefresh = "refresh";
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options => options.TokenValidationParameters = new TokenValidationParameters
+// Bearer validation of our own issuer's tokens; the "usage" claim is re-checked here so
+// a refresh token can never be replayed as an access token.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
-    ValidateIssuerSigningKey = true,
-    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSigningKey)),
-    ValidateIssuer = false,
-    ValidateAudience = false
+    options.TokenValidationParameters = AuthService.TokenValidationParameters();
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context =>
+        {
+            if (context.Principal?.FindFirst("usage")?.Value != AuthService.AccessUsage)
+            {
+                context.Fail("token is not an access token");
+            }
+
+            return Task.CompletedTask;
+        }
+    };
 });
 
 builder.Services.AddAuthorization();
@@ -51,54 +52,92 @@ builder.Services
 
 var app = builder.Build();
 
+app.UseHttpMetrics(); // request metrics for Prometheus (served at /.ops/metrics below)
 app.UseAuthentication();
 app.UseAuthorization();
 
+    // Handlers branch on the parsed body being null: the parser contract guarantees that
+    // a null body always carries a ParseError (see ReadTokenRequestAsync etc.). This
+    // satisfies nullable flow analysis without `!` suppressions at the use sites.
+
 // --- Endpoints ---
 
-app.MapPost("/v1/auth/token", (TokenRequest req) =>
+app.MapPost("/v1/auth/token", async (HttpRequest request, AuthService auth) =>
 {
-    if (req.ClientId == "admin" && req.ClientSecret == "password")
+    var (body, error) = await RequestReader.ReadTokenRequestAsync(request);
+    if (body is null)
     {
-        return Results.Ok(TokenPair());
+        return Error(error!.Status, error.Code, error.Message);
     }
 
-    return Results.Unauthorized();
+    if (body.ClientId is null || body.ClientSecret is null)
+    {
+        return Error(400, "INVALID_REQUEST", "clientId and clientSecret are required");
+    }
+
+    var tokens = await auth.IssueTokensAsync(body.ClientId, body.ClientSecret);
+    return tokens is not null
+        ? Results.Json(tokens)
+        : Error(401, "INVALID_CREDENTIALS", "invalid client credentials");
 });
 
-app.MapPost("/v1/auth/refresh", (RefreshRequest req) =>
+app.MapPost("/v1/auth/refresh", async (HttpRequest request, AuthService auth) =>
 {
-    ClaimsPrincipal principal;
-    try
+    var (body, error) = await RequestReader.ReadRefreshRequestAsync(request);
+    if (body is null)
     {
-        principal = ValidateToken(req.RefreshToken);
-    }
-    catch (Exception)
-    {
-        return Results.Unauthorized();
+        return Error(error!.Status, error.Code, error.Message);
     }
 
-    if (principal.FindFirst("usage")?.Value != UsageRefresh)
+    if (body.RefreshToken is null)
     {
-        return Results.Unauthorized();
+        return Error(400, "INVALID_REQUEST", "refreshToken is required");
     }
 
-    return Results.Ok(TokenPair());
+    var tokens = await auth.RotateAsync(body.RefreshToken);
+    return tokens is not null
+        ? Results.Json(tokens)
+        : Error(401, "INVALID_REFRESH_TOKEN", "invalid refresh token");
 });
 
-app.MapPost("/v1/devices/{id}/events", async (Guid id, TelemetryBatchRequest request, TelemetryService service, IValidator<TelemetryBatchRequest> validator) =>
+app.MapPost("/v1/devices/{id}/events", async (string id, HttpRequest request, ClaimsPrincipal user, TelemetryService service, AuthService auth) =>
 {
-    var validationResult = await validator.ValidateAsync(request);
-    if (!validationResult.IsValid) return Results.BadRequest(validationResult.Errors);
+    if (!Guid.TryParseExact(id, "D", out var deviceId))
+    {
+        return Error(400, "INVALID_DEVICE_ID", "device id is not a valid UUID");
+    }
 
-    await service.ProcessBatchAsync(id, request);
+    if (!auth.IsDeviceAuthorized(user, deviceId))
+    {
+        return Error(403, "DEVICE_NOT_AUTHORIZED", "client is not authorized for this device");
+    }
+
+    var (events, error) = await RequestReader.ReadBatchAsync(request);
+    if (events is null)
+    {
+        return Error(error!.Status, error.Code, error.Message);
+    }
+
+    await service.ProcessBatchAsync(deviceId, events);
     return Results.Created();
 }).RequireAuthorization();
 
-app.MapGet("/v1/devices/{id}/latest", async (Guid id, TelemetryService service) =>
+app.MapGet("/v1/devices/{id}/latest", async (string id, ClaimsPrincipal user, TelemetryService service, AuthService auth) =>
 {
-    var snapshot = await service.GetLatestAsync(id);
-    return snapshot != null ? Results.Ok(snapshot) : Results.NotFound();
+    if (!Guid.TryParseExact(id, "D", out var deviceId))
+    {
+        return Error(400, "INVALID_DEVICE_ID", "device id is not a valid UUID");
+    }
+
+    // Reads answer 404 for devices the caller is not assigned to, so the API never
+    // discloses the existence of another client's devices.
+    if (!auth.IsDeviceAuthorized(user, deviceId))
+    {
+        return Results.NotFound();
+    }
+
+    var snapshot = await service.GetLatestAsync(deviceId);
+    return snapshot is not null ? Results.Json(snapshot) : Results.NotFound();
 }).RequireAuthorization();
 
 app.MapGet("/.ops/health/live", () => Results.Ok("Alive"));
@@ -121,41 +160,9 @@ app.MapGet("/.ops/health/ready", async (AppDbContext db, IConnectionMultiplexer 
     }
 });
 
-app.MapGet("/.ops/metrics", () => Results.Ok("Prometheus metrics would be here via OTel"));
+app.MapMetrics("/.ops/metrics");
 
 app.Run();
 
-// --- Auth helpers (baseline; marked as "adapted for benchmark" for Stage 2 review) ---
-
-static TokenResponse TokenPair() => new(
-    IssueToken(UsageAccess, TimeSpan.FromMinutes(60)),
-    IssueToken(UsageRefresh, TimeSpan.FromHours(24)),
-    3600);
-static ClaimsPrincipal ValidateToken(string token)
-{
-    var handler = new JwtSecurityTokenHandler();
-    return handler.ValidateToken(token, new TokenValidationParameters
-    {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSigningKey)),
-        ValidateIssuer = false,
-        ValidateAudience = false
-    }, out _);
-}
-
-static string IssueToken(string usage, TimeSpan lifetime)
-{
-    var token = new JwtSecurityToken(
-        claims: new[]
-        {
-            new Claim(JwtRegisteredClaimNames.Sub, "admin"),
-            new Claim("usage", usage),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-        },
-        expires: DateTime.UtcNow.Add(lifetime),
-        signingCredentials: new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSigningKey)),
-            SecurityAlgorithms.HmacSha256));
-
-    return new JwtSecurityTokenHandler().WriteToken(token);
-}
+static IResult Error(int status, string code, string message) =>
+    Results.Json(new ErrorResponse(code, message), statusCode: status);

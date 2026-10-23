@@ -11,3 +11,5 @@ public record TelemetryEventDto(Guid EventId, DateTimeOffset OccurredAt, string 
 public record TelemetryBatchRequest(List<TelemetryEventDto> Events);
 
 public record DeviceSnapshotDto(Guid DeviceId, TelemetryEventDto LatestEvent, DateTimeOffset LastUpdated);
+
+public record ErrorResponse(string Code, string Message);
